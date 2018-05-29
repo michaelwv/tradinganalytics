@@ -8,8 +8,10 @@ namespace TradingAnalytics.Application.DTO
 {
     public class TradeOpportunityDTO
     {
-        public string Symbol { get; set; }
+        public string BaseAsset { get; set; }
+        public string QuoteAsset { get; set; }
         public decimal BuyPrice { get; set; }
         public decimal SellPrice { get; set; }
+        public decimal BaseAssetPriceInUsd { get; set; }
     }
 }

@@ -6,7 +6,7 @@ namespace TradingAnalytics.Application.Services
 {
     public class TradingServices
     {
-        public TradeOpportunityDTO GetTradeOpportunity(OrderBookResponse orderBook, decimal quoteAssetPriceInDollars, int assetPrecision, string symbol)
+        public TradeOpportunityDTO GetTradeOpportunity(OrderBookResponse orderBook, decimal baseAssetPriceInDollars, decimal quoteAssetPriceInDollars, int assetPrecision, string baseAsset, string quoteAsset)
         {
             decimal buyPrice = GetBuyPrice(orderBook, assetPrecision, quoteAssetPriceInDollars);
 
@@ -21,7 +21,9 @@ namespace TradingAnalytics.Application.Services
                 {
                     BuyPrice = buyPrice,
                     SellPrice = sellPrice,
-                    Symbol = symbol
+                    BaseAsset = baseAsset,
+                    QuoteAsset = quoteAsset,
+                    BaseAssetPriceInUsd = baseAssetPriceInDollars
                 };
             }
             else
@@ -102,6 +104,12 @@ namespace TradingAnalytics.Application.Services
             }
 
             return defaultAssetPrecision - zerosFound;
+        }
+
+        internal decimal GetOrderQuantity(decimal priceInUsd)
+        {
+            decimal dollarsToInvest = 50;
+            return dollarsToInvest / priceInUsd;
         }
     }
 }

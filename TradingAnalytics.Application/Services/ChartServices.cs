@@ -9,7 +9,7 @@ namespace TradingAnalytics.Application.Services
 {
     public class ChartServices
     {
-        public FileParameter GenerateOrderBookChartImage(OrderBookResponse orderBook, string baseAssetSymbol, string quoteAssetSymbol, decimal baseAssetPriceInDollars, decimal quoteAssetPriceInDollars, int assetPrecision, TradeOpportunityDTO tradeOpportunity)
+        public FileParameter GenerateOrderBookChartImage(OrderBookResponse orderBook, decimal baseAssetPriceInDollars, decimal quoteAssetPriceInDollars, int assetPrecision, TradeOpportunityDTO tradeOpportunity)
         {
             string html = "<html>" +
                         "   <head>" +
@@ -17,8 +17,8 @@ namespace TradingAnalytics.Application.Services
                         getStyle() +
                         "   </head>" +
                         "   <body>" +
-                        "       <div style='font-size: 14px;'>" + baseAssetSymbol + "-" + quoteAssetSymbol + " ($" + baseAssetPriceInDollars.ToString("0.00") + ")</div>" +
-                        "       <div style='font-size: 12px;'>BUY: " + tradeOpportunity.BuyPrice.ToString() + " - SELL: " + tradeOpportunity.SellPrice.ToString() + "</div>" +
+                        "       <div style='font-size: 18px;'>" + tradeOpportunity.BaseAsset + "-" + tradeOpportunity.QuoteAsset + " ($" + baseAssetPriceInDollars.ToString("0.00") + ")</div>" +
+                        "       <div style='font-size: 16px;'>BUY: " + tradeOpportunity.BuyPrice.ToString() + " - SELL: " + tradeOpportunity.SellPrice.ToString() + "</div>" +
                         "       <div class='container'>" + GetBidsAsksHtml(orderBook.Asks, "sell", quoteAssetPriceInDollars, assetPrecision) + "<div class='separador'>&nbsp;</div>" + GetBidsAsksHtml(orderBook.Bids, "buy", quoteAssetPriceInDollars, assetPrecision) + "</div>" +
                         "       </div>" +
                         "   </body>" +
@@ -30,7 +30,7 @@ namespace TradingAnalytics.Application.Services
 
             var imageBytes = htmlToImageConv.GenerateImage(html, ImageFormat.Jpeg.ToString());
 
-            string fileName = String.Format("{0}.jpg", baseAssetSymbol + quoteAssetSymbol);
+            string fileName = String.Format("{0}.jpg", tradeOpportunity.BaseAsset + "-" + tradeOpportunity.QuoteAsset);
 
             MemoryStream memoryStream = new MemoryStream(imageBytes);
 

@@ -1,5 +1,6 @@
 ﻿using MySql.Data.MySqlClient;
 using System;
+using System.Collections.Generic;
 
 namespace TradingAnalytics.DataAccess
 {
@@ -90,7 +91,7 @@ namespace TradingAnalytics.DataAccess
             }
         }
 
-        public MySqlDataReader ExecuteReader(string cmdText)
+        public MySqlDataReader ExecuteReader(string cmdText, Dictionary<string, object> arrParam)
         {
             OpenConnection();
 
@@ -102,6 +103,13 @@ namespace TradingAnalytics.DataAccess
                     CommandText = cmdText,
                     Connection = connection
                 };
+
+                List<MySqlParameter> param = new List<MySqlParameter>();
+
+                foreach (var item in arrParam)
+                    param.Add(new MySqlParameter(item.Key, item.Value));
+
+                mySqlCommand.Parameters.AddRange(param.ToArray());
 
                 var result = mySqlCommand.ExecuteReader();
 
@@ -120,7 +128,7 @@ namespace TradingAnalytics.DataAccess
             }
         }
 
-        public int ExecuteNonQuery(string cmdText)
+        public int ExecuteNonQuery(string cmdText, Dictionary<string, object> arrParam)
         {
             OpenConnection();
 
@@ -133,7 +141,51 @@ namespace TradingAnalytics.DataAccess
                     Connection = connection
                 };
 
+                List<MySqlParameter> param = new List<MySqlParameter>();
+
+                foreach (var item in arrParam)
+                    param.Add(new MySqlParameter(item.Key, item.Value));
+
+                mySqlCommand.Parameters.AddRange(param.ToArray());
+
                 var result = mySqlCommand.ExecuteNonQuery();
+
+                CloseConnection();
+
+                return result;
+            }
+            catch (MySqlException ex)
+            {
+                CloseConnection();
+
+                if (ex.InnerException == null)
+                    throw new Exception(ex.Message);
+
+                throw new Exception(ex.InnerException.Message);
+            }
+        }
+
+        public object ExecuteScalar(string cmdText, Dictionary<string, object> arrParam)
+        {
+            OpenConnection();
+
+            try
+            {
+                MySqlCommand mySqlCommand = new MySqlCommand()
+                {
+                    CommandType = System.Data.CommandType.Text,
+                    CommandText = cmdText,
+                    Connection = connection
+                };
+
+                List<MySqlParameter> param = new List<MySqlParameter>();
+
+                foreach(var item in arrParam)
+                    param.Add(new MySqlParameter(item.Key, item.Value));
+
+                mySqlCommand.Parameters.AddRange(param.ToArray());
+
+                var result = mySqlCommand.ExecuteScalar();
 
                 CloseConnection();
 

@@ -1,5 +1,9 @@
 ﻿using BinanceExchange.API.Client;
+using BinanceExchange.API.Enums;
+using BinanceExchange.API.Extensions;
+using BinanceExchange.API.Models.Request;
 using BinanceExchange.API.Models.Response;
+using BinanceExchange.API.Models.Response.Abstract;
 using log4net;
 using Newtonsoft.Json;
 using System;
@@ -8,6 +12,8 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.Tasks;
 using TradingAnalytics.Application.DTO;
+using TradingAnalytics.DataAccess;
+using TradingAnalytics.Domain.Entities;
 
 namespace TradingAnalytics.Application.Services
 {
@@ -63,12 +69,12 @@ namespace TradingAnalytics.Application.Services
 
                 OrderBookResponse orderBook = await client.GetOrderBook(symbol, false, 10);
 
-                if(orderBook != null)
+                if (orderBook != null)
                     return orderBook;
                 else
                     throw new Exception("Unexpected error when getting order book.", null);
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 throw e;
             }
@@ -96,6 +102,73 @@ namespace TradingAnalytics.Application.Services
                         throw new Exception("Unexpected error when getting price ticker.", null);
                     }
                 }
+            }
+            catch (Exception e)
+            {
+                throw e;
+            }
+        }
+
+        public /*async Task<*/bool/*>*/ SetNewOrder(TradeOpportunityDTO tradeOpportunity, OrderSide side, OrderType type)
+        {
+            try
+            {
+                OrderRepository orderRepository = new OrderRepository();
+
+                if (orderRepository.OrderExists(tradeOpportunity.BaseAsset, tradeOpportunity.QuoteAsset, EnumExtensions.GetEnumMemberValue(OrderStatus.Filled), EnumExtensions.GetEnumMemberValue(OrderStatus.Filled)))
+                    return false;
+
+                TradingServices tradingServices = new TradingServices();
+                decimal price = (side == OrderSide.Buy) ? tradeOpportunity.BuyPrice : tradeOpportunity.SellPrice;
+                decimal quantity = tradingServices.GetOrderQuantity(tradeOpportunity.BaseAssetPriceInUsd);
+
+                if (quantity > 0)
+                {
+                    //var logger = LogManager.GetLogger(typeof(BinanceService));
+
+                    //SecurityDTO binanceKeys = SettingsService.GetBinanceKeys();
+
+                    //var client = new BinanceClient(new ClientConfiguration()
+                    //{
+                    //    ApiKey = binanceKeys.ApiKey,
+                    //    SecretKey = binanceKeys.SecretKey,
+                    //    Logger = logger,
+                    //});
+
+                    //var binanceResult = await client.CreateOrder(new CreateOrderRequest()
+                    //{
+                    //    Symbol = tradeOpportunity.BaseAsset + tradeOpportunity.QuoteAsset,
+                    //    Side = side,
+                    //    Type = type,
+                    //    Quantity = quantity,
+                    //    Price = price,
+                    //    NewOrderResponseType = NewOrderResponseType.Result
+                    //});
+
+                    //if (binanceResult.ClientOrderId != null)
+                    //{
+                    Order order = new Order()
+                    {
+                        BaseAsset = tradeOpportunity.BaseAsset,
+                        QuoteAsset = tradeOpportunity.QuoteAsset,
+                        Quantity = quantity,
+                        BuyPrice = tradeOpportunity.BuyPrice,
+                        BuyStatus = EnumExtensions.GetEnumMemberValue(OrderStatus.New),
+                        //BuyClientOrderId = binanceResult.ClientOrderId,
+                        BuyIncDate = DateTime.Now,
+                        SellPrice = tradeOpportunity.SellPrice
+                    };
+
+                    if (orderRepository.CreateOrder(order) > 0)
+                        return true;
+                    else
+                        throw new Exception("Unable to create new order.");
+                    //}
+                    //else
+                    //    throw new Exception("Unable to create new order.");
+                }
+                else
+                    return false;
             }
             catch (Exception e)
             {

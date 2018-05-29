@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
+using BinanceExchange.API.Enums;
+using BinanceExchange.API.Extensions;
 using BinanceExchange.API.Models.Response;
 using Microsoft.Azure.WebJobs;
 using TradingAnalytics.Application.DTO;
@@ -33,17 +35,22 @@ namespace TradingAnalytics.TradingProcess
 
                 int baseAssetPrecision = tradingServices.GetAssetPrecision(orderBook, coin.BaseAssetPrecision);
 
-                TradeOpportunityDTO tradeOpportunity = tradingServices.GetTradeOpportunity(orderBook, quoteAssetPriceInDollars, baseAssetPrecision, coin.Symbol);
+                TradeOpportunityDTO tradeOpportunity = tradingServices.GetTradeOpportunity(orderBook, baseAssetPriceInDollars, quoteAssetPriceInDollars, baseAssetPrecision, coin.BaseAsset, coin.QuoteAsset);
 
                 if (tradeOpportunity != null)
                 {
-                    FileParameter chartImage = chartServices.GenerateOrderBookChartImage(orderBook, coin.BaseAsset, coin.QuoteAsset, baseAssetPriceInDollars, quoteAssetPriceInDollars, baseAssetPrecision, tradeOpportunity);
+                    bool orderSet = binanceService.SetNewOrder(tradeOpportunity, OrderSide.Buy, OrderType.Limit);
 
-                    TelegramService telegramService = new TelegramService();
-                    HttpResponseMessage response = await telegramService.SendImageAsync(chartImage);
+                    if (orderSet)
+                    {
+                        FileParameter chartImage = chartServices.GenerateOrderBookChartImage(orderBook, baseAssetPriceInDollars, quoteAssetPriceInDollars, baseAssetPrecision, tradeOpportunity);
 
-                    if (response.StatusCode != System.Net.HttpStatusCode.OK)
-                        throw new Exception(response.ReasonPhrase);
+                        TelegramService telegramService = new TelegramService();
+                        HttpResponseMessage response = await telegramService.SendImageAsync(chartImage);
+
+                        if (response.StatusCode != System.Net.HttpStatusCode.OK)
+                            throw new Exception(response.ReasonPhrase);
+                    }
                 }
             }
         }
