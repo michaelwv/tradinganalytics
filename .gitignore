@@ -269,3 +269,4 @@ __pycache__/
 /TradingAnalytics.Web/Web.Debug.config
 /TradingAnalytics.Web/Web.Release.config
 /TradingAnalytics.TradingProcess/App.config
+/TradingAnalytics.OpenOrdersChecking/App.config
