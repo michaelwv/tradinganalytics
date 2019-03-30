@@ -1,4 +1,6 @@
-﻿using BinanceExchange.API.Models.Response;
+﻿using BinanceExchange.API.Enums;
+using BinanceExchange.API.Extensions;
+using BinanceExchange.API.Models.Response;
 using log4net;
 using Newtonsoft.Json;
 using System;
@@ -38,18 +40,26 @@ namespace TradingAnalytics.OpenOrdersChecking
                         string clientOrderId = "";
                         string orderSide = "";
                         decimal price = 0;
+                        string status = "";
+                        string message = "";
+                        int orderId = order.Id;
 
-                        if (order.BuyStatus == "NEW")
+                        TelegramService telegramService = new TelegramService();
+                        HttpResponseMessage response;
+
+                        if (order.BuyStatus == "NEW" || order.BuyStatus == "PARTIALLY_FILLED")
                         {
                             clientOrderId = order.BuyClientOrderId;
                             price = order.BuyPrice;
                             orderSide = "BUY";
+                            status = order.BuyStatus;
                         }
                         else
                         {
                             clientOrderId = order.SellClientOrderId;
                             price = order.SellPrice;
                             orderSide = "SELL";
+                            status = order.SellStatus;
                         }
 
                         decimal lastBaseAssetPrice = binanceService.GetCurrentPrice(order.BaseAsset + order.QuoteAsset).Result;
@@ -58,99 +68,354 @@ namespace TradingAnalytics.OpenOrdersChecking
 
                         decimal quoteAssetPriceInDollars = Math.Round(binanceService.GetCurrentPrice(SettingsService.GetQuoteAssetToTrade() + "USDT").Result, 2);
 
-                        if ((lastBaseAssetPrice >= price && orderSide == "SELL") || (lastBaseAssetPrice <= price && orderSide == "BUY"))
+                        if (!string.IsNullOrEmpty(clientOrderId))
                         {
-                            tradingServices.UpdateOrderStatus(clientOrderId, orderSide, "FILLED", lastBaseAssetPrice, quoteAssetPriceInDollars);
+                            var queryOrder = binanceService.GetOrder(order.BaseAsset + order.QuoteAsset, clientOrderId).Result;
 
-                            string message = orderSide + " ORDER FILLED: " + order.BaseAsset + order.QuoteAsset + " - Price: " + price + " - Quantity: " + order.Quantity;
-                            logger.Debug(message);
-
-                            Console.WriteLine(message);
-
-                            TelegramService telegramService = new TelegramService();
-                            HttpResponseMessage response = telegramService.SendMessageAsync(message).Result;
-                        }
-                        else
-                        {
-                            tradingServices.UpdateLastPrice(clientOrderId, orderSide, lastBaseAssetPrice);
-
-                            OrderBookResponse orderBook = binanceService.GetOrderBook(order.BaseAsset + order.QuoteAsset).Result;
-
-                            if (orderSide == "BUY")
+                            //Check if the order status has changed
+                            if (status.ToUpper() != EnumExtensions.GetEnumMemberValue(queryOrder.Status).ToUpper())
                             {
-                                if (!tradingServices.LowerWallStillExists(orderBook, order.AssetPrecision, quoteAssetPriceInDollars, order.BuyPrice))
+                                tradingServices.UpdateOrderStatus(clientOrderId, orderSide, EnumExtensions.GetEnumMemberValue(queryOrder.Status), lastBaseAssetPrice, quoteAssetPriceInDollars);
+
+                                if (queryOrder.Status == OrderStatus.Filled)
                                 {
-                                    tradingServices.UpdateOrderStatus(clientOrderId, orderSide, "CANCELED", lastBaseAssetPrice, quoteAssetPriceInDollars);
-
-                                    string message = orderSide + " ORDER CANCELED: " + order.BaseAsset + order.QuoteAsset + " - Price: " + price + " - Quantity: " + order.Quantity;
+                                    message = orderSide + " ORDER FILLED: " + order.BaseAsset + order.QuoteAsset + " - Price: " + price + " - Quantity: " + (orderSide == "BUY" ? order.BuyQuantity : order.SellQuantity);
                                     logger.Debug(message);
-
                                     Console.WriteLine(message);
 
-                                    //TelegramService telegramService = new TelegramService();
-//                                    HttpResponseMessage response = telegramService.SendMessageAsync(message).Result;
+                                    response = telegramService.SendMessageAsync(message).Result;
+
+                                    if (response.StatusCode != System.Net.HttpStatusCode.OK)
+                                    {
+                                        logger.Error("Error sending Telegram message. " + response.ReasonPhrase);
+                                        Console.WriteLine("Error sending Telegram message. " + response.ReasonPhrase);
+                                    }
+
+                                    if (queryOrder.Side == OrderSide.Buy)
+                                    {
+                                        bool orderSet = binanceService.SetNewOrder(orderId, order.BaseAsset, order.QuoteAsset, order.AssetPrecision, order.BaseAssetMinQuantity, order.BaseAssetMaxQuantity, order.BaseAssetStepSize, order.BaseAssetMinNotional, quoteAssetPriceInDollars, lastBaseAssetPrice, order.BuyPrice, order.BuyQuantity, order.SellPrice, order.SellQuantity, order.MinimumSellPrice, OrderSide.Sell, OrderType.Limit).Result;
+
+                                        if (orderSet)
+                                        {
+                                            message = "SELL ORDER CREATED: " + order.BaseAsset + order.QuoteAsset + " - Price: " + order.SellPrice + " - Quantity: " + order.SellQuantity;
+                                            logger.Debug(message);
+                                            Console.WriteLine(message);
+
+                                            response = telegramService.SendMessageAsync(message).Result;
+
+                                            if (response.StatusCode != System.Net.HttpStatusCode.OK)
+                                            {
+                                                logger.Error("Error sending Telegram message. " + response.ReasonPhrase);
+                                                Console.WriteLine("Error sending Telegram message. " + response.ReasonPhrase);
+                                            }
+                                        }
+                                        else
+                                        {
+                                            message = "Unexpected error when creating sell order for symbol " + order.BaseAsset + order.QuoteAsset + ".";
+                                            logger.Error(message);
+                                            Console.WriteLine(message);
+
+                                            response = telegramService.SendMessageAsync(message).Result;
+
+                                            if (response.StatusCode != System.Net.HttpStatusCode.OK)
+                                            {
+                                                logger.Error("Error sending Telegram message. " + response.ReasonPhrase);
+                                                Console.WriteLine("Error sending Telegram message. " + response.ReasonPhrase);
+                                            }
+
+                                            continue;
+                                        }
+                                    }
                                 }
                             }
                             else
                             {
-                                decimal sellWallPrice = 0;
+                                tradingServices.UpdateLastPrice(clientOrderId, orderSide, lastBaseAssetPrice);
 
-                                if (tradingServices.UpperWallFormedBeforeDesiredProfit(orderBook, quoteAssetPriceInDollars, order.BuyPrice, order.SellPrice, out sellWallPrice))
+                                if (status == "PARTIALLY_FILLED")
+                                    continue;
+
+                                OrderBookResponse orderBook = binanceService.GetOrderBook(order.BaseAsset + order.QuoteAsset).Result;
+
+                                if (orderSide == "BUY")
                                 {
-                                    tradingServices.UpdateSellOrderUrderWall(clientOrderId, order.AssetPrecision, sellWallPrice);
+                                    if (!tradingServices.LowerWallStillExists(orderBook, order.AssetPrecision, quoteAssetPriceInDollars, order.BuyPrice))
+                                    {
+                                        var cancelOrder = binanceService.CancelOrder(order.BaseAsset + order.QuoteAsset, order.BuyClientOrderId).Result;
 
-                                    string message = "SELL WALL FOUND: " + order.BaseAsset + order.QuoteAsset + " - Wall Price: " + sellWallPrice + ". ORDER UPDATED.";
-                                    logger.Debug(message);
+                                        if (cancelOrder != null)
+                                        {
+                                            if (cancelOrder.Status == OrderStatus.Cancelled)
+                                            {
+                                                tradingServices.UpdateOrderStatus(clientOrderId, orderSide, EnumExtensions.GetEnumMemberValue(OrderStatus.Cancelled), lastBaseAssetPrice, quoteAssetPriceInDollars);
 
-                                    Console.WriteLine(message);
+                                                message = "BUY ORDER CANCELED: " + order.BaseAsset + order.QuoteAsset + " - Price: " + price + " - Quantity: " + order.BuyQuantity;
+                                                logger.Debug(message);
+                                                Console.WriteLine(message);
 
-                                    TelegramService telegramService = new TelegramService();
-                                    HttpResponseMessage response = telegramService.SendMessageAsync(message).Result;
+                                                response = telegramService.SendMessageAsync(message).Result;
+
+                                                if (response.StatusCode != System.Net.HttpStatusCode.OK)
+                                                {
+                                                    logger.Error("Error sending Telegram message. " + response.ReasonPhrase);
+                                                    Console.WriteLine("Error sending Telegram message. " + response.ReasonPhrase);
+                                                }
+                                            }
+                                            else
+                                            {
+                                                message = "Unexpected error when cancelling buy order for symbol " + order.BaseAsset + order.QuoteAsset + " and ID " + clientOrderId + ".";
+                                                logger.Error(message);
+                                                Console.WriteLine(message);
+
+                                                response = telegramService.SendMessageAsync(message).Result;
+
+                                                if (response.StatusCode != System.Net.HttpStatusCode.OK)
+                                                {
+                                                    logger.Error("Error sending Telegram message. " + response.ReasonPhrase);
+                                                    Console.WriteLine("Error sending Telegram message. " + response.ReasonPhrase);
+                                                }
+
+                                                continue;
+                                            }
+                                        }
+                                        else
+                                        {
+                                            message = "Unexpected error when cancelling buy order for symbol " + order.BaseAsset + order.QuoteAsset + " and ID " + clientOrderId + ".";
+                                            logger.Error(message);
+                                            Console.WriteLine(message);
+
+                                            response = telegramService.SendMessageAsync(message).Result;
+
+                                            if (response.StatusCode != System.Net.HttpStatusCode.OK)
+                                            {
+                                                logger.Error("Error sending Telegram message. " + response.ReasonPhrase);
+                                                Console.WriteLine("Error sending Telegram message. " + response.ReasonPhrase);
+                                            }
+
+                                            continue;
+                                        }
+                                    }
                                 }
                                 else
                                 {
-                                    decimal newSellPrice = tradingServices.GetSellPrice(orderBook, order.BuyPrice, order.AssetPrecision, quoteAssetPriceInDollars, true);
+                                    decimal sellWallPrice = 0;
 
-                                    if (newSellPrice > order.BuyPrice && newSellPrice != order.SellPrice)
+                                    if (tradingServices.UpperWallFormedBeforeDesiredProfit(orderBook, quoteAssetPriceInDollars, order.MinimumSellPrice, order.SellPrice, out sellWallPrice))
                                     {
-                                        tradingServices.UpdateSellOrderPrice(clientOrderId, newSellPrice);
+                                        decimal sellPrice = Math.Round(sellWallPrice - (1 / (decimal)Math.Pow(10, order.AssetPrecision)), order.AssetPrecision);
 
-                                        string message = "SELL PRICE UPDATED: " + order.BaseAsset + order.QuoteAsset + " - Sell Price: " + newSellPrice + ". ORDER UPDATED.";
-                                        logger.Debug(message);
+                                        if (sellPrice != order.SellPrice)
+                                        {
+                                            var cancelOrder = binanceService.CancelOrder(order.BaseAsset + order.QuoteAsset, order.SellClientOrderId).Result;
 
-                                        Console.WriteLine(message);
+                                            if (cancelOrder != null)
+                                            {
+                                                if (cancelOrder.Status == OrderStatus.Cancelled)
+                                                {
+                                                    tradingServices.UpdateOrderStatus(clientOrderId, orderSide, EnumExtensions.GetEnumMemberValue(OrderStatus.Cancelled), lastBaseAssetPrice, quoteAssetPriceInDollars);
 
-                                        TelegramService telegramService = new TelegramService();
-                                        HttpResponseMessage response = telegramService.SendMessageAsync(message).Result;
+                                                    message = "UPPER WALL FORMED - SELL ORDER CANCELED: " + order.BaseAsset + order.QuoteAsset + " - Price: " + price + " - Quantity: " + order.SellQuantity;
+                                                    logger.Debug(message);
+                                                    Console.WriteLine(message);
+
+                                                    var orderRecreated = binanceService.SetNewOrder(order.Id, order.BaseAsset, order.QuoteAsset, order.AssetPrecision, order.BaseAssetMinQuantity, order.BaseAssetMaxQuantity, order.BaseAssetStepSize, order.BaseAssetMinNotional, quoteAssetPriceInDollars, lastBaseAssetPrice, order.BuyPrice, order.BuyQuantity, sellPrice, order.SellQuantity, order.MinimumSellPrice, OrderSide.Sell, OrderType.Limit).Result;
+
+                                                    if (orderRecreated)
+                                                    {
+                                                        message = "UPPER WALL FORMED - SELL ORDER RECREATED: " + order.BaseAsset + order.QuoteAsset + " - Price: " + sellPrice + " - Quantity: " + order.SellQuantity;
+                                                        logger.Debug(message);
+                                                        Console.WriteLine(message);
+
+                                                        //response = telegramService.SendMessageAsync(message).Result;
+
+                                                        //if (response.StatusCode != System.Net.HttpStatusCode.OK)
+                                                        //{
+                                                        //    logger.Error("Error sending Telegram message. " + response.ReasonPhrase);
+                                                        //    Console.WriteLine("Error sending Telegram message. " + response.ReasonPhrase);
+                                                        //}
+                                                    }
+                                                    else
+                                                    {
+                                                        message = "Unexpected error when recreating sell order for symbol " + order.BaseAsset + order.QuoteAsset + ".";
+                                                        logger.Error(message);
+                                                        Console.WriteLine(message);
+
+                                                        response = telegramService.SendMessageAsync(message).Result;
+
+                                                        if (response.StatusCode != System.Net.HttpStatusCode.OK)
+                                                        {
+                                                            logger.Error("Error sending Telegram message. " + response.ReasonPhrase);
+                                                            Console.WriteLine("Error sending Telegram message. " + response.ReasonPhrase);
+                                                        }
+
+                                                        continue;
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    message = "Unexpected error when cancelling sell order for symbol " + order.BaseAsset + order.QuoteAsset + " and ID " + clientOrderId + ".";
+                                                    logger.Error(message);
+                                                    Console.WriteLine(message);
+
+                                                    response = telegramService.SendMessageAsync(message).Result;
+
+                                                    if (response.StatusCode != System.Net.HttpStatusCode.OK)
+                                                    {
+                                                        logger.Error("Error sending Telegram message. " + response.ReasonPhrase);
+                                                        Console.WriteLine("Error sending Telegram message. " + response.ReasonPhrase);
+                                                    }
+
+                                                    continue;
+                                                }
+                                            }
+                                            else
+                                            {
+                                                message = "Unexpected error when cancelling sell order for symbol " + order.BaseAsset + order.QuoteAsset + " and ID " + clientOrderId + ".";
+                                                logger.Error(message);
+                                                Console.WriteLine(message);
+
+                                                response = telegramService.SendMessageAsync(message).Result;
+
+                                                if (response.StatusCode != System.Net.HttpStatusCode.OK)
+                                                {
+                                                    logger.Error("Error sending Telegram message. " + response.ReasonPhrase);
+                                                    Console.WriteLine("Error sending Telegram message. " + response.ReasonPhrase);
+                                                }
+
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                    else
+                                    {
+                                        decimal baseAssetPriceInDollars = Math.Round(lastBaseAssetPrice * quoteAssetPriceInDollars, order.AssetPrecision);
+                                        decimal buyQuantity = 0;
+                                        decimal sellQuantity = 0;
+                                        decimal minimumSellPrice = 0;
+                                        decimal maximumSellPrice = 0;
+
+                                        decimal newSellPrice = tradingServices.GetSellPrice(orderBook, order.BuyPrice, order.AssetPrecision, lastBaseAssetPrice, baseAssetPriceInDollars, quoteAssetPriceInDollars, true, order.BaseAssetMinQuantity, order.BaseAssetMaxQuantity, order.BaseAssetStepSize, order.BaseAssetMinNotional, out buyQuantity, out sellQuantity, out minimumSellPrice, out maximumSellPrice);
+
+                                        if (newSellPrice > order.BuyPrice && newSellPrice != order.SellPrice && newSellPrice >= minimumSellPrice)
+                                        {
+                                            var cancelOrder = binanceService.CancelOrder(order.BaseAsset + order.QuoteAsset, order.SellClientOrderId).Result;
+
+                                            if (cancelOrder != null)
+                                            {
+                                                if (cancelOrder.Status == OrderStatus.Cancelled)
+                                                {
+                                                    tradingServices.UpdateOrderStatus(clientOrderId, orderSide, EnumExtensions.GetEnumMemberValue(OrderStatus.Cancelled), lastBaseAssetPrice, quoteAssetPriceInDollars);
+
+                                                    message = "SELL ORDER CANCELED TO BE ADJUSTED: " + order.BaseAsset + order.QuoteAsset + " - Price: " + order.SellPrice + " - Quantity: " + order.SellQuantity;
+                                                    logger.Debug(message);
+                                                    Console.WriteLine(message);
+
+                                                    var orderAdjusted = binanceService.SetNewOrder(order.Id, order.BaseAsset, order.QuoteAsset, order.AssetPrecision, order.BaseAssetMinQuantity, order.BaseAssetMaxQuantity, order.BaseAssetStepSize, order.BaseAssetMinNotional, quoteAssetPriceInDollars, lastBaseAssetPrice, order.BuyPrice, order.BuyQuantity, newSellPrice, order.SellQuantity, order.MinimumSellPrice, OrderSide.Sell, OrderType.Limit).Result;
+
+                                                    if (orderAdjusted)
+                                                    {
+                                                        message = "SELL ORDER ADJUSTED: " + order.BaseAsset + order.QuoteAsset + " - Price: " + newSellPrice + " - Quantity: " + order.SellQuantity;
+                                                        logger.Debug(message);
+                                                        Console.WriteLine(message);
+
+                                                        //response = telegramService.SendMessageAsync(message).Result;
+
+                                                        //if (response.StatusCode != System.Net.HttpStatusCode.OK)
+                                                        //{
+                                                        //    logger.Error("Error sending Telegram message. " + response.ReasonPhrase);
+                                                        //    Console.WriteLine("Error sending Telegram message. " + response.ReasonPhrase);
+                                                        //}
+                                                    }
+                                                    else
+                                                    {
+                                                        message = "Unexpected error when adjusting sell order for symbol " + order.BaseAsset + order.QuoteAsset + ".";
+                                                        logger.Error(message);
+                                                        Console.WriteLine(message);
+
+                                                        response = telegramService.SendMessageAsync(message).Result;
+
+                                                        if (response.StatusCode != System.Net.HttpStatusCode.OK)
+                                                        {
+                                                            logger.Error("Error sending Telegram message. " + response.ReasonPhrase);
+                                                            Console.WriteLine("Error sending Telegram message. " + response.ReasonPhrase);
+                                                        }
+
+                                                        continue;
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    message = "Unexpected error when cancelling sell order for symbol " + order.BaseAsset + order.QuoteAsset + " and ID " + clientOrderId + ".";
+                                                    logger.Error(message);
+                                                    Console.WriteLine(message);
+
+                                                    response = telegramService.SendMessageAsync(message).Result;
+
+                                                    if (response.StatusCode != System.Net.HttpStatusCode.OK)
+                                                    {
+                                                        logger.Error("Error sending Telegram message. " + response.ReasonPhrase);
+                                                        Console.WriteLine("Error sending Telegram message. " + response.ReasonPhrase);
+                                                    }
+
+                                                    continue;
+                                                }
+                                            }
+                                            else
+                                            {
+                                                message = "Unexpected error when cancelling sell order for symbol " + order.BaseAsset + order.QuoteAsset + " and ID " + clientOrderId + ".";
+                                                logger.Error(message);
+                                                Console.WriteLine(message);
+
+                                                response = telegramService.SendMessageAsync(message).Result;
+
+                                                if (response.StatusCode != System.Net.HttpStatusCode.OK)
+                                                {
+                                                    logger.Error("Error sending Telegram message. " + response.ReasonPhrase);
+                                                    Console.WriteLine("Error sending Telegram message. " + response.ReasonPhrase);
+                                                }
+
+                                                continue;
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
-
-                        /*OrderResponse openOrder = await binanceService.GetOrder(order.BaseAsset + order.QuoteAsset, clientOrderId);
-
-                        tradingServices.UpdateOrderStatus(clientOrderId, EnumExtensions.GetEnumMemberValue(openOrder.Side), EnumExtensions.GetEnumMemberValue(openOrder.Status), lastBaseAssetPrice);
-
-                        if (openOrder.Status == BinanceExchange.API.Enums.OrderStatus.New)
+                        else
                         {
-                            OrderBookResponse orderBook = await binanceService.GetOrderBook(openOrder.Symbol);
+                            if (status.ToUpper() == "PENDING_CREATION" && orderSide == "SELL")
+                            {
+                                decimal baseAssetPriceInDollars = Math.Round(lastBaseAssetPrice * quoteAssetPriceInDollars, order.AssetPrecision);
+                                decimal buyQuantity = 0;
+                                decimal sellQuantity = 0;
+                                decimal minimumSellPrice = 0;
+                                decimal maximumSellPrice = 0;
 
-                            if (openOrder.Side == BinanceExchange.API.Enums.OrderSide.Buy)
-                            {
-                                if (!tradingServices.LowerWallStillExists(orderBook))
-                                    binanceService.CancelOrder(openOrder.Symbol, clientOrderId);
-                            }
-                            else
-                            {
-                                if (tradingServices.UpperWallFormedBeforeDesiredProfit(orderBook))
-                                    binanceService.UpdateSellOrderUrderWall(openOrder.Symbol, clientOrderId);
+                                OrderBookResponse orderBook = binanceService.GetOrderBook(order.BaseAsset + order.QuoteAsset).Result;
+
+                                decimal newSellPrice = tradingServices.GetSellPrice(orderBook, order.BuyPrice, order.AssetPrecision, lastBaseAssetPrice, baseAssetPriceInDollars, quoteAssetPriceInDollars, true, order.BaseAssetMinQuantity, order.BaseAssetMaxQuantity, order.BaseAssetStepSize, order.BaseAssetMinNotional, out buyQuantity, out sellQuantity, out minimumSellPrice, out maximumSellPrice);
+
+                                if (newSellPrice > order.BuyPrice && newSellPrice != order.SellPrice && newSellPrice >= minimumSellPrice)
+                                {
+                                    var orderCreated = binanceService.SetNewOrder(order.Id, order.BaseAsset, order.QuoteAsset, order.AssetPrecision, order.BaseAssetMinQuantity, order.BaseAssetMaxQuantity, order.BaseAssetStepSize, order.BaseAssetMinNotional, quoteAssetPriceInDollars, lastBaseAssetPrice, order.BuyPrice, order.BuyQuantity, newSellPrice, order.SellQuantity, order.MinimumSellPrice, OrderSide.Sell, OrderType.Limit).Result;
+
+                                    if (orderCreated)
+                                    {
+                                        message = "PENDING SELL ORDER CREATED: " + order.BaseAsset + order.QuoteAsset + " - Price: " + newSellPrice + " - Quantity: " + order.SellQuantity;
+                                        logger.Debug(message);
+                                        Console.WriteLine(message);
+
+                                        response = telegramService.SendMessageAsync(message).Result;
+
+                                        if (response.StatusCode != System.Net.HttpStatusCode.OK)
+                                        {
+                                            logger.Error("Error sending Telegram message. " + response.ReasonPhrase);
+                                            Console.WriteLine("Error sending Telegram message. " + response.ReasonPhrase);
+                                        }
+                                    }
+                                }
                             }
                         }
-                        else if (openOrder.Status == BinanceExchange.API.Enums.OrderStatus.Filled)
-                        {
-                            if (openOrder.Side == BinanceExchange.API.Enums.OrderSide.Buy)
-                                binanceService.SetSalesOrder(openOrder.Symbol, order.SellPrice);
-                        }*/
                     }
                 }
 

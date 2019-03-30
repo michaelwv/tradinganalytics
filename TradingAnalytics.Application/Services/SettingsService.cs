@@ -68,5 +68,20 @@ namespace TradingAnalytics.Application.Services
         {
             return Properties.Settings.Default.CoinVolumeToConsider;
         }
+
+        public static decimal GetBinanceTaxes()
+        {
+            return Properties.Settings.Default.BinanceTaxes;
+        }
+
+        public static int GetUnitsToConsiderAtBuy()
+        {
+            return Properties.Settings.Default.UnitsToConsiderAtBuy;
+        }
+
+        public static int GetKlineCandleLimit()
+        {
+            return Properties.Settings.Default.KlineCandleLimit;
+        }
     }
 }

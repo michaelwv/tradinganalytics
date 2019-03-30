@@ -23,7 +23,7 @@ namespace TradingAnalytics.OpenOrdersChecking
             {
                 functions.CheckOpenOrders();
                 System.Threading.Thread.Sleep(30000);
-            }
+             }
 
             //Logger.Debug("Open Orders Checking console finished.");
             //Console.WriteLine("Open Orders Checking console finished.");

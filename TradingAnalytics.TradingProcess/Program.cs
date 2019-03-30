@@ -18,7 +18,7 @@ namespace TradingAnalytics.TradingProcess
             while (1 == 1)
             {
                 functions.ProcessTrades();
-                System.Threading.Thread.Sleep(180000);
+                System.Threading.Thread.Sleep(120000);
             }
         }
     }

@@ -42,25 +42,63 @@ namespace TradingAnalytics.DataAccess
             }
         }
 
+        public int UpdateOrder(Order order)
+        {
+            try
+            {
+                MySqlDataAccess mySqlDataAccess = new MySqlDataAccess();
+                string cmd = "UPDATE orders SET" +
+                             "  SellQuantity = @sellQuantity, SellPrice = @sellPrice, SellStatus = @sellStatus, SellStatusDate = @sellStatusDate, SellClientOrderId = @sellClientOrderId, SellIncDate = @sellIncDate, QuoteAssetPriceAtSell = @quoteAssetPriceAtSell" +
+                             " WHERE ID = @id";
+
+                Dictionary<string, object> arrParam = new Dictionary<string, object>()
+                {
+                    { "@sellQuantity", order.SellQuantity },
+                    { "@sellPrice", order.SellPrice },
+                    { "@sellStatus", order.SellStatus },
+                    { "@sellStatusDate", order.SellStatusDate },
+                    { "@sellClientOrderId", order.SellClientOrderId },
+                    { "@sellIncDate", order.SellIncDate },
+                    { "@quoteAssetPriceAtSell", order.QuoteAssetPriceAtSell },
+                    { "@id", order.Id }
+                };
+
+                int result = mySqlDataAccess.ExecuteNonQuery(cmd, arrParam);
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                throw ex;
+            }
+        }
+
         public int CreateOrder(Order order)
         {
             try
             {
                 MySqlDataAccess mySqlDataAccess = new MySqlDataAccess();
-                string cmd = "INSERT INTO orders (BaseAsset, QuoteAsset, AssetPrecision, Quantity, BuyPrice, BuyStatus, BuyStatusDate, BuyClientOrderId, BuyIncDate, SellPrice) VALUES (@baseAsset, @quoteAsset, @assetPrecision, @quantity, @buyPrice, @buyStatus, @buyStatusDate, @buyClientOrderId, @buyIncDate, @sellPrice)";
+                string cmd = "INSERT INTO orders (BaseAsset, QuoteAsset, AssetPrecision, BaseAssetStepSize, BaseAssetMinNotional, BaseAssetMinQuantity, BaseAssetMaxQuantity, BuyQuantity, BuyPrice, BuyStatus, BuyStatusDate, BuyClientOrderId, BuyIncDate, QuoteAssetPriceAtBuy, SellQuantity, SellPrice, MinimumSellPrice) VALUES (@baseAsset, @quoteAsset, @assetPrecision, @baseAssetStepSize, @baseAssetMinNotional, @baseAssetMinQuantity, @baseAssetMaxQuantity, @buyQuantity, @buyPrice, @buyStatus, @buyStatusDate, @buyClientOrderId, @buyIncDate, @quoteAssetPriceAtBuy, @sellQuantity, @sellPrice, @minimumSellPrice)";
 
                 Dictionary<string, object> arrParam = new Dictionary<string, object>()
                 {
                     { "@baseAsset", order.BaseAsset },
                     { "@quoteAsset", order.QuoteAsset },
                     { "@assetPrecision", order.AssetPrecision },
-                    { "@quantity", order.Quantity },
+                    { "@baseAssetStepSize", order.BaseAssetStepSize },
+                    { "@baseAssetMinNotional", order.BaseAssetMinNotional },
+                    { "@baseAssetMinQuantity", order.BaseAssetMinQuantity },
+                    { "@baseAssetMaxQuantity", order.BaseAssetMaxQuantity },
+                    { "@buyQuantity", order.BuyQuantity },
                     { "@buyPrice", order.BuyPrice },
                     { "@buyStatus", order.BuyStatus },
-                    { "@buyStatusDate", DateTime.Now },
+                    { "@buyStatusDate", order.BuyStatusDate },
                     { "@buyClientOrderId", order.BuyClientOrderId },
                     { "@buyIncDate", order.BuyIncDate },
-                    { "@sellPrice", order.SellPrice }
+                    { "@quoteAssetPriceAtBuy", order.QuoteAssetPriceAtBuy },
+                    { "@sellQuantity", order.SellQuantity },
+                    { "@sellPrice", order.SellPrice },
+                    { "@minimumSellPrice", order.MinimumSellPrice }
                 };
 
                 int result = mySqlDataAccess.ExecuteNonQuery(cmd, arrParam);
@@ -83,14 +121,8 @@ namespace TradingAnalytics.DataAccess
                              ", " + (side.ToUpper() == "BUY" ? " BuyStatusDate" : " SellStatusDate") + " = @statusDate" +
                              ", LastPrice = @lastPrice" +
                              ", LastPriceDate = @lastPriceDate";
-#if DEBUG
-                if (side.ToUpper() == "BUY" && status == "FILLED")
-                {
-                    cmd += ", SellStatus = 'NEW', SellStatusDate = @sellStatusDate, SellIncDate = @sellIncDate";
-                }
-#endif
 
-                if (status == "FILLED")
+                if (status.ToUpper() == "FILLED")
                 {
                     cmd += ", " + (side.ToUpper() == "BUY" ? " QuoteAssetPriceAtBuy" : " QuoteAssetPriceAtSell") + " = @quoteAssetPriceInDollars";
                 }
@@ -104,8 +136,6 @@ namespace TradingAnalytics.DataAccess
                     { "@lastPrice", lastPrice },
                     { "@lastPriceDate", DateTime.Now },
                     { "@clientOrderId", clientOrderId },
-                    { "@sellStatusDate", DateTime.Now },
-                    { "@sellIncDate", DateTime.Now },
                     { "@quoteAssetPriceInDollars", quoteAssetPriceInDollars }
                 };
 
@@ -146,31 +176,6 @@ namespace TradingAnalytics.DataAccess
             }
         }
 
-        public int UpdateSellOrderPrice(string clientOrderId, decimal sellPrice)
-        {
-            try
-            {
-                MySqlDataAccess mySqlDataAccess = new MySqlDataAccess();
-                string cmd = "UPDATE orders SET" +
-                             "  SellPrice = @sellPrice" +
-                             " WHERE SellClientOrderId = @clientOrderId;";
-
-                Dictionary<string, object> arrParam = new Dictionary<string, object>()
-                {
-                    { "@sellPrice", sellPrice },
-                    { "@clientOrderId", clientOrderId }
-                };
-
-                int result = mySqlDataAccess.ExecuteNonQuery(cmd, arrParam);
-
-                return result;
-            }
-            catch (Exception ex)
-            {
-                throw ex;
-            }
-        }
-
         public List<Order> GetOpenOrders()
         {
             MySqlDataAccess mySqlDataAccess = new MySqlDataAccess();
@@ -178,7 +183,7 @@ namespace TradingAnalytics.DataAccess
             try
             {
                 List<Order> orders = new List<Order>();
-                string cmd = " SELECT * FROM orders WHERE (BuyStatus = 'NEW' OR SellStatus = 'NEW')";
+                string cmd = " SELECT * FROM orders WHERE (BuyStatus IN('NEW', 'PARTIALLY_FILLED') OR SellStatus IN ('NEW', 'PARTIALLY_FILLED', 'PENDING_CREATION'))";
 
                 var result = mySqlDataAccess.ExecuteReader(cmd, null);
 
@@ -186,22 +191,31 @@ namespace TradingAnalytics.DataAccess
                 {
                     var order = new Order();
 
+                    order.Id = result.GetInt32("Id");
                     order.BaseAsset = result.GetString("BaseAsset");
                     order.QuoteAsset = result.GetString("QuoteAsset");
                     order.AssetPrecision = result.GetInt16("AssetPrecision");
-                    order.Quantity = result.GetDecimal("Quantity");
+                    order.BaseAssetStepSize = result.GetDecimal("BaseAssetStepSize");
+                    order.BaseAssetMinNotional = result.GetDecimal("BaseAssetMinNotional");
+                    order.BaseAssetMinQuantity = result.GetDecimal("BaseAssetMinQuantity");
+                    order.BaseAssetMaxQuantity = result.GetDecimal("BaseAssetMaxQuantity");
+                    order.BuyQuantity = result.GetDecimal("BuyQuantity");
                     order.BuyPrice = result.GetDecimal("BuyPrice");
                     order.BuyStatus = result.GetString("BuyStatus");
-                    order.BuyClientOrderId = (result.IsDBNull(result.GetOrdinal("BuyClientOrderId"))) ? null : result.GetString("BuyClientOrderId");
+                    order.BuyStatusDate = result.GetDateTime("BuyStatusDate");
+                    order.BuyClientOrderId = result.GetString("BuyClientOrderId");
                     order.BuyIncDate = result.GetDateTime("BuyIncDate");
-
-                    if (!result.IsDBNull(result.GetOrdinal("QuoteAssetPriceAtBuy")))
-                        order.QuoteAssetPriceAtBuy = result.GetDecimal("QuoteAssetPriceAtBuy");
-                    else
-                        order.QuoteAssetPriceAtBuy = null;
-
+                    order.QuoteAssetPriceAtBuy = result.GetDecimal("QuoteAssetPriceAtBuy");
+                    order.SellQuantity = result.GetDecimal("SellQuantity");
                     order.SellPrice = result.GetDecimal("SellPrice");
+                    order.MinimumSellPrice = result.GetDecimal("MinimumSellPrice");
                     order.SellStatus = (result.IsDBNull(result.GetOrdinal("SellStatus"))) ? null : result.GetString("SellStatus");
+
+                    if (!result.IsDBNull(result.GetOrdinal("SellStatusDate")))
+                        order.SellStatusDate = result.GetDateTime("SellStatusDate");
+                    else
+                        order.SellStatusDate = null;
+
                     order.SellClientOrderId = (result.IsDBNull(result.GetOrdinal("SellClientOrderId"))) ? null : result.GetString("SellClientOrderId");
 
                     if (!result.IsDBNull(result.GetOrdinal("SellIncDate")))
@@ -239,13 +253,23 @@ namespace TradingAnalytics.DataAccess
             }
         }
 
-        public void UpdateClientOrderId()
+        public int UpdateSellOrderWithPendingStatus(int orderId)
         {
-            MySqlDataAccess mySqlDataAccess = new MySqlDataAccess();
+            try
+            {
+                MySqlDataAccess mySqlDataAccess = new MySqlDataAccess();
+                string cmd = "UPDATE orders SET" +
+                             "  SellStatus = 'PENDING_CREATION', SellStatusDate = NOW()" +
+                             " WHERE ID = " + orderId.ToString();
 
-            string cmd = " UPDATE orders SET BuyClientOrderId = Id, SellClientOrderId = Id WHERE BuyClientOrderId IS NULL OR SellClientOrderId IS NULL";
+                int result = mySqlDataAccess.ExecuteNonQuery(cmd, null);
 
-            var result = mySqlDataAccess.ExecuteNonQuery(cmd, null);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                throw ex;
+            }
         }
     }
 }

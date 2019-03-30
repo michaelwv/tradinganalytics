@@ -35,17 +35,21 @@ namespace TradingAnalytics.TradingProcess
                 decimal coinVolumeToConsider = SettingsService.GetCoinVolumeToConsider();
                 decimal minQty = 0;
                 decimal maxQty = 0;
+                decimal stepSize = 0;
+                decimal minNotional = 0;
+                decimal highestPrice = 0;
 
                 foreach (ExchangeInfoSymbol coin in tradingCoins)
                 {
-                    var volume = GetCoinDailyVolume(coin.BaseAsset + coin.QuoteAsset);
+                    var volume = GetCoinDailyVolume(coin.BaseAsset + coin.QuoteAsset, out highestPrice);
 
                     if (volume < coinVolumeToConsider)
-                    {
-                        //logger.Debug(coin.BaseAsset + coin.QuoteAsset + ": Insufficient daily volume.");
-                        //Console.WriteLine(coin.BaseAsset + coin.QuoteAsset + ": Insufficient daily volume.");
                         continue;
-                    }
+
+                    var stochastic = tradingServices.GetStochasticRsi(coin.BaseAsset + coin.QuoteAsset);
+
+                    if (stochastic > 20 || stochastic < 0)
+                        continue;
 
                     var filter = coin.Filters.Find(x => x.FilterType.ToString() == "LotSize");
 
@@ -54,9 +58,18 @@ namespace TradingAnalytics.TradingProcess
                         ExchangeInfoSymbolFilterLotSize filterLotSize = (ExchangeInfoSymbolFilterLotSize)filter;
                         minQty = filterLotSize.MinQty;
                         maxQty = filterLotSize.MaxQty;
+                        stepSize = filterLotSize.StepSize;
                     }
 
-                    var tradeOpportunityFirstCheck = GetTradeOpportunity(coin.BaseAsset, coin.QuoteAsset, quoteAssetPriceInDollars, minQty, maxQty);
+                    filter = coin.Filters.Find(x => x.FilterType.ToString() == "MinNotional");
+
+                    if (filter != null)
+                    {
+                        ExchangeInfoSymbolFilterMinNotional  filterMinNotional = (ExchangeInfoSymbolFilterMinNotional)filter;
+                        minNotional = filterMinNotional.MinNotional;
+                    }
+
+                    var tradeOpportunityFirstCheck = GetTradeOpportunity(coin.BaseAsset, coin.QuoteAsset, quoteAssetPriceInDollars, minQty, maxQty, stepSize, highestPrice, minNotional);
 
                     if (tradeOpportunityFirstCheck != null)
                     {
@@ -69,11 +82,14 @@ namespace TradingAnalytics.TradingProcess
                 logger.Debug("------------First Check Finished------------------");
                 Console.WriteLine("------------First Check Finished------------------");
 
+                if (tradeOpportunitiesFirstCheck.Count == 0)
+                    return;
+
                 System.Threading.Thread.Sleep(60000);
 
                 foreach (TradeOpportunityDTO tradeOpportunityFirstCheck in tradeOpportunitiesFirstCheck)
                 {
-                    var tradeOpportunitySecondCheck = GetTradeOpportunity(tradeOpportunityFirstCheck.BaseAsset, tradeOpportunityFirstCheck.QuoteAsset, quoteAssetPriceInDollars, tradeOpportunityFirstCheck.MinQty, tradeOpportunityFirstCheck.MaxQty);
+                    var tradeOpportunitySecondCheck = GetTradeOpportunity(tradeOpportunityFirstCheck.BaseAsset, tradeOpportunityFirstCheck.QuoteAsset, quoteAssetPriceInDollars, tradeOpportunityFirstCheck.MinQty, tradeOpportunityFirstCheck.MaxQty, tradeOpportunityFirstCheck.StepSize, tradeOpportunityFirstCheck.HighestPrice, tradeOpportunityFirstCheck.MinNotional);
 
                     if (tradeOpportunitySecondCheck != null)
                     {
@@ -86,11 +102,14 @@ namespace TradingAnalytics.TradingProcess
                 logger.Debug("------------Second Check Finished-----------------");
                 Console.WriteLine("------------Second Check Finished-----------------");
 
+                if (tradeOpportunitiesSecondCheck.Count == 0)
+                    return;
+
                 System.Threading.Thread.Sleep(60000);
 
                 foreach (TradeOpportunityDTO tradeOpportunitySecondCheck in tradeOpportunitiesSecondCheck)
                 {
-                    var tradeOpportunityThirdCheck = GetTradeOpportunity(tradeOpportunitySecondCheck.BaseAsset, tradeOpportunitySecondCheck.QuoteAsset, quoteAssetPriceInDollars, tradeOpportunitySecondCheck.MinQty, tradeOpportunitySecondCheck.MaxQty);
+                    var tradeOpportunityThirdCheck = GetTradeOpportunity(tradeOpportunitySecondCheck.BaseAsset, tradeOpportunitySecondCheck.QuoteAsset, quoteAssetPriceInDollars, tradeOpportunitySecondCheck.MinQty, tradeOpportunitySecondCheck.MaxQty, tradeOpportunitySecondCheck.StepSize, tradeOpportunitySecondCheck.HighestPrice, tradeOpportunitySecondCheck.MinNotional);
 
                     if (tradeOpportunityThirdCheck != null)
                     {
@@ -103,11 +122,14 @@ namespace TradingAnalytics.TradingProcess
                 logger.Debug("-------------Third Check Finished-----------------");
                 Console.WriteLine("-------------Third Check Finished-----------------");
 
+                if (tradeOpportunitiesThirdCheck.Count == 0)
+                    return;
+
                 System.Threading.Thread.Sleep(60000);
 
                 foreach (TradeOpportunityDTO tradeOpportunityThirdCheck in tradeOpportunitiesThirdCheck)
                 {
-                    var tradeOpportunityFourthCheck = GetTradeOpportunity(tradeOpportunityThirdCheck.BaseAsset, tradeOpportunityThirdCheck.QuoteAsset, quoteAssetPriceInDollars, tradeOpportunityThirdCheck.MinQty, tradeOpportunityThirdCheck.MaxQty);
+                    var tradeOpportunityFourthCheck = GetTradeOpportunity(tradeOpportunityThirdCheck.BaseAsset, tradeOpportunityThirdCheck.QuoteAsset, quoteAssetPriceInDollars, tradeOpportunityThirdCheck.MinQty, tradeOpportunityThirdCheck.MaxQty, tradeOpportunityThirdCheck.StepSize, tradeOpportunityThirdCheck.HighestPrice, tradeOpportunityThirdCheck.MinNotional);
 
                     if (tradeOpportunityFourthCheck != null)
                     {
@@ -122,13 +144,17 @@ namespace TradingAnalytics.TradingProcess
 
                 foreach (TradeOpportunityDTO tradeOpportunityFourthCheck in tradeOpportunitiesFourthCheck)
                 {
-                    bool orderSet = binanceService.SetNewOrder(tradeOpportunityFourthCheck, OrderSide.Buy, OrderType.Limit);
+                    if (tradeOpportunityFourthCheck.BuyQuantity <= 0 || tradeOpportunityFourthCheck.SellQuantity <= 0)
+                    {
+                        logger.Error(tradeOpportunityFourthCheck.BaseAsset + tradeOpportunityFourthCheck.QuoteAsset + ": Error - Invalid quantity.");
+                        Console.WriteLine(tradeOpportunityFourthCheck.BaseAsset + tradeOpportunityFourthCheck.QuoteAsset + ": Error - Invalid quantity.");
+                        continue;
+                    }
+
+                    bool orderSet = binanceService.SetNewOrder(0, tradeOpportunityFourthCheck.BaseAsset, tradeOpportunityFourthCheck.QuoteAsset, tradeOpportunityFourthCheck.BaseAssetPrecision, tradeOpportunityFourthCheck.MinQty, tradeOpportunityFourthCheck.MaxQty, tradeOpportunityFourthCheck.StepSize, tradeOpportunityFourthCheck.MinNotional, tradeOpportunityFourthCheck.QuoteAssetPriceInUsd, tradeOpportunityFourthCheck.LastBaseAssetPrice, tradeOpportunityFourthCheck.BuyPrice, tradeOpportunityFourthCheck.BuyQuantity, tradeOpportunityFourthCheck.SellPrice, tradeOpportunityFourthCheck.SellQuantity, tradeOpportunityFourthCheck.MinimumSellPrice, OrderSide.Buy, OrderType.Limit).Result;
 
                     if (orderSet)
                     {
-                        logger.Debug("New Order: " + tradeOpportunityFourthCheck.BaseAsset + tradeOpportunityFourthCheck.QuoteAsset + " - Buy Price: " + tradeOpportunityFourthCheck.BuyPrice + " - Sell Price: " + tradeOpportunityFourthCheck.SellPrice);
-                        Console.WriteLine("New Order: " + tradeOpportunityFourthCheck.BaseAsset + tradeOpportunityFourthCheck.QuoteAsset + " - Buy Price: " + tradeOpportunityFourthCheck.BuyPrice + " - Sell Price: " + tradeOpportunityFourthCheck.SellPrice);
-
                         ChartServices chartServices = new ChartServices();
 
                         FileParameter chartImage = chartServices.GenerateOrderBookChartImage(quoteAssetPriceInDollars, tradeOpportunityFourthCheck);
@@ -137,13 +163,15 @@ namespace TradingAnalytics.TradingProcess
                         HttpResponseMessage response = telegramService.SendImageAsync(chartImage).Result;
 
                         if (response.StatusCode != System.Net.HttpStatusCode.OK)
-                            throw new Exception(response.ReasonPhrase);
+                        {
+                            logger.Error("Error sending Telegram message. " + response.ReasonPhrase);
+                            Console.WriteLine("Error sending Telegram message. " + response.ReasonPhrase);
+                        }
                     }
                 }
 
                 logger.Debug("-----------------Process Finished-----------------");
                 Console.WriteLine("-----------------Process Finished-----------------");
-                Console.Clear();
             }
             catch (Exception e)
             {
@@ -154,7 +182,7 @@ namespace TradingAnalytics.TradingProcess
             }
         }
 
-        private TradeOpportunityDTO GetTradeOpportunity(string baseAsset, string quoteAsset, decimal quoteAssetPriceInDollars, decimal minQty, decimal maxQty)
+        private TradeOpportunityDTO GetTradeOpportunity(string baseAsset, string quoteAsset, decimal quoteAssetPriceInDollars, decimal minQty, decimal maxQty, decimal stepSize, decimal highestPrice, decimal minNotional)
         {
             BinanceService binanceService = new BinanceService();
             TradingServices tradingServices = new TradingServices();
@@ -170,18 +198,22 @@ namespace TradingAnalytics.TradingProcess
 
             decimal baseAssetPriceInDollars = Math.Round(lastBaseAssetPrice * quoteAssetPriceInDollars, baseAssetPrecision);
 
-            return tradingServices.ValidateTradeOpportunity(orderBook, lastBaseAssetPrice, baseAssetPriceInDollars, quoteAssetPriceInDollars, baseAssetPrecision, baseAsset, quoteAsset, minQty, maxQty);
+            return tradingServices.ValidateTradeOpportunity(orderBook, lastBaseAssetPrice, baseAssetPriceInDollars, quoteAssetPriceInDollars, baseAssetPrecision, baseAsset, quoteAsset, minQty, maxQty, stepSize, highestPrice, minNotional);
         }
 
-        public decimal GetCoinDailyVolume(string symbol)
+        public decimal GetCoinDailyVolume(string symbol, out decimal highestPrice)
         {
             BinanceService binanceService = new BinanceService();
             decimal dailyVolume = 0;
+            highestPrice = 0;
 
             var dailyTicker = binanceService.GetDailyTicker(symbol).Result;
 
             if (dailyTicker != null)
+            {
                 dailyVolume = dailyTicker.QuoteVolume;
+                highestPrice = dailyTicker.HighPrice;
+            }
 
             return dailyVolume;
         }

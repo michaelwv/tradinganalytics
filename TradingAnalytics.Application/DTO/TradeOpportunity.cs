@@ -7,7 +7,11 @@ namespace TradingAnalytics.Application.DTO
         public string BaseAsset { get; set; }
         public string QuoteAsset { get; set; }
         public decimal BuyPrice { get; set; }
+        public decimal BuyQuantity { get; set; }
         public decimal SellPrice { get; set; }
+        public decimal SellQuantity { get; set; }
+        public decimal MinimumSellPrice { get; set; }
+        public decimal MaximumSellPrice { get; set; }
         public decimal LastBaseAssetPrice { get; set; }
         public decimal BaseAssetPriceInUsd { get; set; }
         public decimal QuoteAssetPriceInUsd { get; set; }
@@ -15,5 +19,8 @@ namespace TradingAnalytics.Application.DTO
         public OrderBookResponse OrderBook { get; set; }
         public decimal MinQty { get; set; }
         public decimal MaxQty { get; set; }
+        public decimal StepSize { get; set; }
+        public decimal HighestPrice { get; set; }
+        public decimal MinNotional { get; set; }
     }
 }

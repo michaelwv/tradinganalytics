@@ -25,24 +25,6 @@ namespace TradingAnalytics.Application.Properties {
         
         [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("WQAYb0xrHH7v2Y90DYkYcAPIVgx4wcinJr19CrjoJVpK0o4XzrM9r8OaUIFxxmtI")]
-        public string BinanceApiKey {
-            get {
-                return ((string)(this["BinanceApiKey"]));
-            }
-        }
-        
-        [global::System.Configuration.ApplicationScopedSettingAttribute()]
-        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("acbILBrgtZQ8mQFx6ldYAJa0QLonrE6qObgyeHlRpocWJeY5O1Z1lGwz7o2n7blr")]
-        public string BinanceSecretKey {
-            get {
-                return ((string)(this["BinanceSecretKey"]));
-            }
-        }
-        
-        [global::System.Configuration.ApplicationScopedSettingAttribute()]
-        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("525399719:AAGHmsWQFwCBkxldPOZf9WHWjomdybDInlM")]
         public string TelegramToken {
             get {
@@ -106,7 +88,7 @@ namespace TradingAnalytics.Application.Properties {
         
         [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("600")]
+        [global::System.Configuration.DefaultSettingValueAttribute("500")]
         public decimal BidValueToConsiderWall {
             get {
                 return ((decimal)(this["BidValueToConsiderWall"]));
@@ -115,7 +97,7 @@ namespace TradingAnalytics.Application.Properties {
         
         [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("200")]
+        [global::System.Configuration.DefaultSettingValueAttribute("180")]
         public decimal AskValueToConsiderWall {
             get {
                 return ((decimal)(this["AskValueToConsiderWall"]));
@@ -124,7 +106,7 @@ namespace TradingAnalytics.Application.Properties {
         
         [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("0.5")]
+        [global::System.Configuration.DefaultSettingValueAttribute("1")]
         public decimal DesiredProfitPercentage {
             get {
                 return ((decimal)(this["DesiredProfitPercentage"]));
@@ -142,7 +124,7 @@ namespace TradingAnalytics.Application.Properties {
         
         [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("4")]
+        [global::System.Configuration.DefaultSettingValueAttribute("5")]
         public int RangeToFind {
             get {
                 return ((int)(this["RangeToFind"]));
@@ -151,7 +133,7 @@ namespace TradingAnalytics.Application.Properties {
         
         [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("120")]
+        [global::System.Configuration.DefaultSettingValueAttribute("2")]
         public decimal DollarsToInvest {
             get {
                 return ((decimal)(this["DollarsToInvest"]));
@@ -160,10 +142,55 @@ namespace TradingAnalytics.Application.Properties {
         
         [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("150")]
+        [global::System.Configuration.DefaultSettingValueAttribute("100")]
         public decimal CoinVolumeToConsider {
             get {
                 return ((decimal)(this["CoinVolumeToConsider"]));
+            }
+        }
+        
+        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("QlqNn7FQTgCfKd8p7G2iyCIBhVwApuPnKDnpfthy9PFD8XQwlqVe9ZetaYBL0LYe")]
+        public string BinanceApiKey {
+            get {
+                return ((string)(this["BinanceApiKey"]));
+            }
+        }
+        
+        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("TJBkA8NbR2jXY93L5Yngv1J3grREHH6vmEqsz4JZ2OkpqO2Q0DA300DJDnIzo8Ll")]
+        public string BinanceSecretKey {
+            get {
+                return ((string)(this["BinanceSecretKey"]));
+            }
+        }
+        
+        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("0.2")]
+        public decimal BinanceTaxes {
+            get {
+                return ((decimal)(this["BinanceTaxes"]));
+            }
+        }
+        
+        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("10")]
+        public int UnitsToConsiderAtBuy {
+            get {
+                return ((int)(this["UnitsToConsiderAtBuy"]));
+            }
+        }
+        
+        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("14")]
+        public int KlineCandleLimit {
+            get {
+                return ((int)(this["KlineCandleLimit"]));
             }
         }
     }

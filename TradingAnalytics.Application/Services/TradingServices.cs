@@ -9,34 +9,78 @@ namespace TradingAnalytics.Application.Services
 {
     public class TradingServices
     {
-        public TradeOpportunityDTO ValidateTradeOpportunity(OrderBookResponse orderBook, decimal lastBaseAssetPrice, decimal baseAssetPriceInDollars, decimal quoteAssetPriceInDollars, int assetPrecision, string baseAsset, string quoteAsset, decimal minQty, decimal maxQty)
+        public TradeOpportunityDTO ValidateTradeOpportunity(OrderBookResponse orderBook, decimal lastBaseAssetPrice, decimal baseAssetPriceInDollars, decimal quoteAssetPriceInDollars, int assetPrecision, string baseAsset, string quoteAsset, decimal minQty, decimal maxQty, decimal stepSize, decimal highestPrice, decimal minNotional)
         {
             decimal buyPrice = GetBuyPrice(orderBook, assetPrecision, quoteAssetPriceInDollars);
+            decimal buyQuantity = 0;
+            decimal sellQuantity = 0;
+            decimal minimumSellPrice = 0;
+            decimal maximumSellPrice = 0;
 
             if (buyPrice == 0)
                 return null;
 
-            decimal sellPrice = GetSellPrice(orderBook, buyPrice, assetPrecision, quoteAssetPriceInDollars, false);
+            decimal sellPrice = GetSellPrice(orderBook, buyPrice, assetPrecision, lastBaseAssetPrice, baseAssetPriceInDollars, quoteAssetPriceInDollars, false, minQty, maxQty, stepSize, minNotional, out buyQuantity, out sellQuantity, out minimumSellPrice, out maximumSellPrice);
+
+            if ((buyPrice * buyQuantity) < minNotional)
+                return null;
+
+            if (sellPrice > highestPrice)
+                return null;
 
             if (buyPrice > 0 && sellPrice > 0)
             {
                 return new TradeOpportunityDTO()
                 {
-                    BuyPrice = buyPrice,
-                    SellPrice = sellPrice,
                     BaseAsset = baseAsset,
                     QuoteAsset = quoteAsset,
+                    BuyPrice = buyPrice,
+                    BuyQuantity = buyQuantity,
+                    SellPrice = sellPrice,
+                    SellQuantity = sellQuantity,
+                    MinimumSellPrice = minimumSellPrice,
+                    MaximumSellPrice = maximumSellPrice,
                     LastBaseAssetPrice = lastBaseAssetPrice,
                     BaseAssetPriceInUsd = baseAssetPriceInDollars,
                     QuoteAssetPriceInUsd = quoteAssetPriceInDollars,
                     BaseAssetPrecision = assetPrecision,
                     OrderBook = orderBook,
                     MinQty = minQty,
-                    MaxQty = maxQty
+                    MaxQty = maxQty,
+                    StepSize = stepSize,
+                    HighestPrice = highestPrice,
+                    MinNotional = minNotional
                 };
             }
             else
                 return null;
+        }
+
+        public decimal GetStochasticRsi(string symbol)
+        {
+            BinanceService binanceService = new BinanceService();
+
+            var klineCandleStick = binanceService.GetKlineCandleStick(symbol).Result;
+            decimal lowestLow = 0;
+            decimal highestHigh = 0;
+            decimal currentClose = 0;
+            decimal stochastic = -1;
+
+            if (klineCandleStick.Count > 0)
+            {
+                klineCandleStick.Sort((x, y) => y.OpenTime.CompareTo(x.OpenTime));
+                currentClose = klineCandleStick[0].Close;
+
+                klineCandleStick.Sort((x, y) => x.Low.CompareTo(y.Low));
+                lowestLow = klineCandleStick[0].Low;
+
+                klineCandleStick.Sort((x, y) => y.High.CompareTo(x.High));
+                highestHigh = klineCandleStick[0].High;
+
+                stochastic = (currentClose - lowestLow) / (highestHigh - lowestLow) * 100;
+            }
+
+            return stochastic;
         }
 
         public int UpdateOrderStatus(string clientOrderId, string side, string status, decimal lastPrice, decimal quoteAssetPriceInDollars)
@@ -58,15 +102,30 @@ namespace TradingAnalytics.Application.Services
             decimal bidValueToConsiderWall = SettingsService.GetBidValueToConsiderWall();
             int rangeToFind = SettingsService.GetRangeToFind();
             decimal wallPrice = Math.Round(buyPrice - (1 / (decimal)Math.Pow(10, assetPrecision)), assetPrecision);
+            int unitsToConsiderAtBuy = SettingsService.GetUnitsToConsiderAtBuy();
 
             bool lowerWallStillExists = false;
 
-            foreach (var bid in orderBook.Bids.GetRange(0, rangeToFind))
+            foreach (var bid in orderBook.Bids.GetRange(0, rangeToFind + 1))
             {
-                if (bid.Price == wallPrice)
+                decimal totalValue = Math.Round(bid.Price * bid.Quantity * quoteAssetPriceInDollars, 2);
+
+                //Check if the total value of the orders is considered a wall
+                if (totalValue >= bidValueToConsiderWall)
                 {
-                    decimal totalValue = Math.Round(bid.Price * bid.Quantity * quoteAssetPriceInDollars, 2);
-                    return (totalValue >= bidValueToConsiderWall);
+                    //Check if the buy wall price is higher than the current buy price
+                    if (bid.Price > buyPrice)
+                    {
+                        return false;
+                    }
+                    else if (bid.Price < buyPrice)
+                    {
+                        //Check if the wall price is higher than the current buy price added with unitsToConsiderAtBuy value
+                        if (bid.Price < Math.Round(buyPrice - (unitsToConsiderAtBuy / (decimal)Math.Pow(10, assetPrecision)), assetPrecision))
+                            return false;
+                        else
+                            return true;
+                    }
                 }
             }
 
@@ -80,32 +139,23 @@ namespace TradingAnalytics.Application.Services
             return orderRepository.GetOpenOrders();
         }
 
-        public bool UpperWallFormedBeforeDesiredProfit(OrderBookResponse orderBook, decimal quoteAssetPriceInDollars, decimal buyPrice, decimal sellPrice, out decimal wallPrice)
+        public bool UpperWallFormedBeforeDesiredProfit(OrderBookResponse orderBook, decimal quoteAssetPriceInDollars, decimal minimumSellPrice, decimal sellPrice, out decimal wallPrice)
         {
             decimal askValueToConsiderWall = SettingsService.GetAskValueToConsiderWall();
             int rangeToFind = SettingsService.GetRangeToFind();
 
             wallPrice = 0;
 
-            foreach (var ask in orderBook.Asks.GetRange(0, rangeToFind))
+            foreach (var ask in orderBook.Asks.GetRange(0, rangeToFind + 1))
             {
                 decimal totalValue = Math.Round(ask.Price * ask.Quantity * quoteAssetPriceInDollars, 2);
 
-                if (totalValue >= askValueToConsiderWall && ask.Price > buyPrice) //Sell Wall Identified
-                    if (ask.Price < sellPrice)
-                        if (wallPrice == 0 || ask.Price < wallPrice)
-                            wallPrice = ask.Price;
+                if (totalValue >= askValueToConsiderWall && ask.Price > minimumSellPrice) //Sell Wall Identified
+                    if (wallPrice == 0 || ask.Price < wallPrice)
+                        wallPrice = ask.Price;
             }
 
             return wallPrice != 0;
-        }
-
-        public int UpdateSellOrderUrderWall(string clientOrderId, int assetPrecision, decimal sellWallPrice)
-        {
-            OrderRepository orderRepository = new OrderRepository();
-            decimal sellPrice = Math.Round(sellWallPrice - (1 / (decimal)Math.Pow(10, assetPrecision)), assetPrecision);
-
-            return orderRepository.UpdateSellOrderPrice(clientOrderId, sellPrice);
         }
 
         public decimal GetBuyPrice(OrderBookResponse orderBook, int assetPrecision, decimal quoteAssetPriceInDollars)
@@ -125,13 +175,21 @@ namespace TradingAnalytics.Application.Services
             return buyPrice;
         }
 
-        public decimal GetSellPrice(OrderBookResponse orderBook, decimal buyPrice, int assetPrecision, decimal quoteAssetPriceInDollars, bool adjustingSellPrice)
+        public decimal GetSellPrice(OrderBookResponse orderBook, decimal buyPrice, int baseAssetPrecision, decimal lastBaseAssetPrice, decimal baseAssetPriceInDollars, decimal quoteAssetPriceInDollars, bool adjustingSellPrice, decimal minQty, decimal maxQty, decimal stepSize, decimal minNotional, out decimal buyQuantity, out decimal sellQuantity, out decimal minimumSellPrice, out decimal maximumSellPrice)
         {
+            decimal lossPercentage = 0;
+
+            buyQuantity = 0;
+            sellQuantity = 0;
+            minimumSellPrice = 0;
+            maximumSellPrice = 0;
+
+            GetOrderQuantityAndPrice(baseAssetPrecision, lastBaseAssetPrice, baseAssetPriceInDollars, minQty, maxQty, stepSize, buyPrice, out buyQuantity, out sellQuantity, out minimumSellPrice, out lossPercentage, out maximumSellPrice);
+
             decimal askValueToConsiderWall = SettingsService.GetAskValueToConsiderWall();
             int rangeToFind = SettingsService.GetRangeToFind();
             decimal sellPrice = 0;
             decimal currentPrice = 0;
-            decimal desiredProfitPercentage = SettingsService.GetDesiredProfitPercentage();
             bool limitToProfit = SettingsService.GetLimitToProfit();
 
             foreach (var ask in orderBook.Asks.GetRange(0, rangeToFind))
@@ -141,30 +199,26 @@ namespace TradingAnalytics.Application.Services
 
                 if (totalValue >= askValueToConsiderWall) //Sell Wall Identified
                 {
-                    sellPrice = ask.Price - (1 / (decimal)Math.Pow(10, assetPrecision));
+                    sellPrice = ask.Price - (1 / (decimal)Math.Pow(10, baseAssetPrecision));
                     break;
                 }
             }
 
             if (sellPrice == 0)
-                sellPrice = buyPrice + (buyPrice * desiredProfitPercentage / 100);
+                sellPrice = maximumSellPrice;
 
-            if ((sellPrice * 100 / buyPrice) - 100 >= desiredProfitPercentage)
+            if (sellPrice >= maximumSellPrice)
             {
                 if (limitToProfit)
-                    sellPrice = buyPrice + (buyPrice * desiredProfitPercentage / 100);
+                    sellPrice = maximumSellPrice;
             }
             else if (!adjustingSellPrice)
                 sellPrice = 0;
 
-            return Math.Round(sellPrice, assetPrecision);
-        }
+            if ((sellPrice * sellQuantity) < minNotional)
+                sellPrice = 0;
 
-        public int UpdateSellOrderPrice(string clientOrderId, decimal sellPrice)
-        {
-            OrderRepository orderRepository = new OrderRepository();
-
-            return orderRepository.UpdateSellOrderPrice(clientOrderId, sellPrice);
+            return Math.Round(sellPrice, baseAssetPrecision);
         }
 
         public int GetAssetPrecision(OrderBookResponse orderBook)
@@ -203,23 +257,49 @@ namespace TradingAnalytics.Application.Services
             return defaultAssetPrecision - zerosFound;
         }
 
-        internal decimal GetOrderQuantity(decimal priceInUsd, decimal minQty, decimal maxQty)
+        public decimal GetMaxQuantityToSell(decimal quantity, decimal stepSize)
+        {
+            decimal taxes = SettingsService.GetBinanceTaxes();
+            decimal qtyToSell = quantity - (quantity * taxes / 100);
+
+            qtyToSell = GetRoundedSellQuantity(qtyToSell, stepSize);
+
+            return qtyToSell;
+        }
+
+        public void GetOrderQuantityAndPrice(int baseAssetPrecision, decimal lastBaseAssetPrice, decimal priceInUsd, decimal minQty, decimal maxQty, decimal stepSize, decimal buyPrice, out decimal buyOrderQuantity, out decimal sellOrderQuantity, out decimal minimumSellPrice, out decimal lossPercentage, out decimal maxSellPrice)
         {
             if (priceInUsd == 0)
                 priceInUsd = (decimal)0.01;
 
-            int qtyAssetPrecision = GetValueAssetPrecision(minQty);
+            int qtyAssetPrecision = GetValueAssetPrecision(stepSize);
 
+            decimal binanceTaxes = SettingsService.GetBinanceTaxes();
+            decimal desiredProfitPercentage = SettingsService.GetDesiredProfitPercentage() + binanceTaxes;
             decimal dollarsToInvest = SettingsService.GetDollarsToInvest();
-            decimal qty = Math.Round(dollarsToInvest / priceInUsd, qtyAssetPrecision);
+            decimal buyQty = Math.Round(dollarsToInvest / priceInUsd, qtyAssetPrecision);
 
-            if (qty < minQty)
-                qty = minQty;
+            if (buyQty < minQty)
+                buyQty = minQty;
 
-            if (qty > maxQty)
-                qty = maxQty;
+            if (buyQty > maxQty)
+                buyQty = maxQty;
 
-            return qty;
+            buyOrderQuantity = buyQty;
+            sellOrderQuantity = GetMaxQuantityToSell(buyQty, stepSize);
+
+            //Considerando Loss Rate
+            //minimumSellPrice = Math.Round(buyPrice * buyOrderQuantity / sellOrderQuantity, baseAssetPrecision);
+
+            //Considerando apenas a taxa de comissão da Binance
+            minimumSellPrice = Math.Round(buyPrice + (buyPrice * binanceTaxes / 100), baseAssetPrecision);
+
+            lossPercentage = 0;//100 - (buyPrice / minimumSellPrice * 100);
+
+            maxSellPrice = Math.Round(buyPrice + (buyPrice * (lossPercentage + desiredProfitPercentage) / 100), baseAssetPrecision);
+
+            if (maxSellPrice < lastBaseAssetPrice)
+                maxSellPrice = lastBaseAssetPrice;
         }
 
         public int GetValueAssetPrecision(decimal minQty)
@@ -250,6 +330,14 @@ namespace TradingAnalytics.Application.Services
             }
 
             return defaultAssetPrecision - zerosFound;
+        }
+
+        public decimal GetRoundedSellQuantity(decimal availableQuantity, decimal stepSize)
+        {
+            int decimalPlaces = GetValueAssetPrecision(stepSize);
+            double adjustment = Math.Pow(10, decimalPlaces);
+
+            return Math.Floor(availableQuantity * (decimal)adjustment) / (decimal)adjustment;
         }
     }
 }
